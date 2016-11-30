@@ -4,6 +4,7 @@
 #include <array>
 #include <mutex>
 #include <thread>
+#include <condition_variable>
 
 template<typename T, std::size_t N>
 class bounded_queue
@@ -15,15 +16,16 @@ public:
 
     while(_size == N)
     {
-      lock.unlock();
-      std::this_thread::yield();
-      lock.lock();
+      _full_queue.wait(lock);
     }
 
     _buffer[_back] = std::move(t);
     
     _back = (_back + 1) % N;
     ++_size;
+
+    _empty_queue.notify_one();
+
   }
 
   T pop_front()
@@ -32,9 +34,7 @@ public:
 
     while(_size == 0)
     {
-      lock.unlock();
-      std::this_thread::yield();
-      lock.lock();
+      _empty_queue.wait(lock);
     }
 
     auto ret = _buffer[_front];
@@ -42,12 +42,16 @@ public:
     _front = (_front + 1) % N;
     --_size;
 
+    _full_queue.notify_one();
+
     return ret;
   }
 
 
 private:
   std::mutex _mtx;
+  std::condition_variable _full_queue;
+  std::condition_variable _empty_queue;
 
   std::array<T, N> _buffer;
   std::size_t _front = 0;
